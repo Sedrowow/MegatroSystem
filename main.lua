@@ -1,7 +1,7 @@
 Noir.Started:Once(function()
     if Noir.AddonReason == "AddonReload" then
         server.cleanVehicles()
-        server.announce("[MegatroSystem]", "")
+        server.announce("[MegatroSystem]", "The [MegatroSystem] has been reloaded ")
     elseif Noir.AddonReason == "SaveCreate" then
         server.announce("[MegatroSystem]", "A save was created with [MegatroSystem]")
     elseif Noir.AddonReason == "SaveLoad" then
@@ -11,11 +11,16 @@ Noir.Started:Once(function()
     end
 end)
 
-local function onPlayerJoin(player)
-    print(player.name .. " has joined the game.")
-    -- Additional logic to handle the player's join can be added here
-end
 
-Noir.Services.PlayerService.OnJoin:Connect(onPlayerJoin)
+Noir.Services.CommandService:CreateCommand("help", {"h"}, {"Nerd"}, false, false, false, "Example Command", function(player, message, args, hasPermission)
+    if not hasPermission then
+        player:Notify("Lacking Permissions", "Sorry, you don't have permission to run this command. Try again.", 3)
+        player:SetPermission("Nerd")
+        return
+    end
+
+    player:Notify("Help", "TODO: Add a help message", 4)
+end)
+
 
 Noir:Start()
