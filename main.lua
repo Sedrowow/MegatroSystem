@@ -11,7 +11,11 @@ Noir.Started:Once(function()
     end
 end)
 
+local function onPlayerJoin(player)
+    print(player.name .. " has joined the game.")
+    -- Additional logic to handle the player's join can be added here
+end
 
+Noir.Services.PlayerService.OnJoin:Connect(onPlayerJoin)
 
 Noir:Start()
-server.announce("Server", "Noir hasn't started yet!")
