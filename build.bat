@@ -1,0 +1,1 @@
+py combine.py --directory "." --destination "script.lua" --allow_file_extension ".lua"
