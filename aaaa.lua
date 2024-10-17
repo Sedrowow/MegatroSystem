@@ -93,6 +93,73 @@ function isInMainland(target_id)
         return false
     end
 end
+function displayUI()
+    if (playertable ~= nil) then
+        for k, v in pairs(playertable) do
+            if (isPlayerOnline(v[1])) then
+                local target_id = getPlayerID(v[1])
+                server.setPopupScreen(target_id, 47, "Bank", true,
+                    "Bank:\n$" .. string.format('%.0f', getBank(target_id)), 0.885, 0.75)
+                if (getDebt(target_id) > 0) then
+                    server.setPopupScreen(target_id, 48, "Debt", true,
+                        "Debt:\n$" .. string.format('%.0f', getDebt(target_id)), 0.885, 0.62)
+                    server.setPopupScreen(target_id, 49, "Shared Bank", true, "Shared Bank:\n$" .. getSharedBank(),
+                        0.885, 0.49)
+                else
+                    server.setPopupScreen(target_id, 48, "Debt", false, "", 0.885, 0.62)
+                    server.setPopupScreen(target_id, 49, "Shared Bank", true, "Shared Bank:\n$" .. getSharedBank(),
+                        0.885, 0.62)
+                end
+            end
+        end
+    end
+end
+function searchTable(tbl, searchedvalue)
+    for k, v in pairs(tbl) do
+        if v == searchedvalue then
+            return k
+        end
+    end
+    return -1
+end
+
+function getVehicleCost(group_id)
+    if vehicletable[group_id] then
+        return vehicletable[group_id].cost
+    end
+    return 0
+end
+function incomeTax()
+    for k, v in pairs(playertable) do
+        if (v[6] < server.getDateValue()) then
+            if (isPlayerOnline(v[1])) then
+                local amount = datatable[1]
+                playertable[k][6] = server.getDateValue()
+                if (amount == 0) then
+                    return
+                end
+                local target_id = getPlayerID(v[1])
+                addBank(target_id, amount)
+                if (amount > 0) then
+                    server.notify(target_id, "Tax Return", "$" .. amount .. " has been added to your account", 8)
+                else
+                    server.notify(target_id, "Taxes Due", "$" .. amount .. " has been deducted from your account", 8)
+                    if (getBank(target_id) < 0) then
+                        local deficit = getBank(target_id)
+                        setBank(target_id, 0)
+                        if (negativetaxdebt) then
+                            addDebt(target_id, -deficit)
+                            if (getDebt(target_id) > debtcap) then
+                                setDebt(target_id, debtcap)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
 -- Functions for shared bank management
 function getSharedBank()
     local shared_bank = server.getCurrency() - 1000000
@@ -183,7 +250,33 @@ function getVehicleCost(group_id)
         return 0
     end
 end
+function deleteVehicleFromTable(group_id)
+    vehicletable[group_id] = nil
+end
 
+function getLastVehicle(target_id)
+    for k, v in pairs(playertable) do
+        if (v[1] == server.getPlayerName(target_id)) then
+            return playertable[k][4] -- Returns last group they were in
+        end
+    end
+    return -1
+end
+function setLastVehicle(target_id, group_id)
+    for k, v in pairs(playertable) do
+        if (v[1] == server.getPlayerName(target_id)) then
+            playertable[k][4] = group_id
+        end
+    end
+end
+
+function clearVehicles(target_id)
+    for group_id, group_info in pairs(vehicletable) do
+        if (group_info.owner_name == server.getPlayerName(target_id)) then
+            server.despawnVehicleGroup(group_id, true)
+        end
+    end
+end
 -- Vehicle spawn and despawn handling
 function onGroupSpawn(group_id, peer_id, x, y, z, cost)
     if (peer_id > -1) then
@@ -306,13 +399,49 @@ end
 function onCustomCommand(full_message, user_peer_id, is_admin, is_auth, command, ...)
     local args = { ... }
     local playername = server.getPlayerName(user_peer_id)
-
+    if command == "?init" then
+        InitializePlayer(user_peer_id)
+    end
     -- ?help command
     if command == "?help" then
         server.announce("Commands", "?bank\n?deposit (amount)\n?claim (amount)\n?pay (player id) (amount)\n?loan (amount)\n?payloan (amount)\n?bench\n?recover [" .. string.format('%.0f', recoverycostpercent * 100) .. "% vehicle cost fee]\n?lock\n?unlock\n?savegame", user_peer_id)
         server.announce("Island Commands", "?claimisland\n?unclaimisland\n?setcoowner (player id) (island name)\n?setteleport (player id) (island name)\n?setspawn (player id) (island name)\n?setbench (player id) (island name)\n?teleport (island name)\n?access", user_peer_id)
     end
+    if command == "?loan" then
+        local amount = tonumber(args[1])
+        local currentdebt = getDebt(user_peer_id)
+        if amount and amount + currentdebt <= maxloan then
+            addBank(user_peer_id, amount)
+            addDebt(user_peer_id, amount)
+            server.notify(user_peer_id, "Loan Successful",
+                "Current Debt: $" .. (currentdebt + amount) .. "\nYour debt will increase by " .. (debtperday * 100) ..
+                    "%" .. " at the beginning of each day", 8)
+        else
+            server.notify(user_peer_id, "Loan Failed",
+                "Loan exceeds available amount\nMax: $" .. (maxloan - currentdebt), 8)
+        end
+    end
 
+    -- ?payloan
+    if command == "?payloan" then
+        local amount = tonumber(args[1])
+        local currentdebt = getDebt(user_peer_id)
+        if amount and amount > 0 then
+            if getBank(user_peer_id) >= amount then
+                if currentdebt >= amount then
+                    addBank(user_peer_id, -amount)
+                    addDebt(user_peer_id, -amount)
+                    server.notify(user_peer_id, "Payment Successful", "Remaining Debt: $" .. (currentdebt - amount), 8)
+                else
+                    server.notify(user_peer_id, "Payment Failed", "Amount larger than current debt", 8)
+                end
+            else
+                server.notify(user_peer_id, "Payment Failed", "You do not have enough money", 8)
+            end
+        else
+            server.notify(user_peer_id, "Payment Failed", "Please enter a valid number", 8)
+        end
+    end
     -- Include all the other commands and functions as defined earlier
     -- ?bench, ?recover, ?lock, ?unlock, island commands, etc.
     if command == "?resetisland" and is_admin then
@@ -982,14 +1111,14 @@ function onCreate(is_world_create)
         playertable = {}
         vehicletable = {}
         islandtable = {}
-        datatable = { incometax = 0.1 }
-        server.setCurrency(1000000, server.getResearchPoints())  -- Set server currency to 1,000,000
+        datatable = {incometax}
+        server.setCurrency(1000000, server.getResearchPoints()) -- Set server currency to 1,000,000
         saveGame()
     else
         playertable = g_savedata.playertable or {}
         vehicletable = g_savedata.vehicletable or {}
         islandtable = g_savedata.islandtable or {}
-        datatable = g_savedata.datatable or { incometax = 0.1 }
+        datatable = g_savedata.datatable or {incometax}
         -- Do not reset server currency in existing worlds
     end
 end
